@@ -1,0 +1,22 @@
+{
+  "name": "desafio_ibge_1209",
+  "version": "1.0.0",
+  "description": "Automação RPA para navegação no SIDRA/IBGE e extração da Tabela 1209 (População 60+ por UF)",
+  "main": "desafio_ibge_1209.js",
+  "scripts": {
+    "start": "node desafio_ibge_1209.js",
+    "start:headed": "node desafio_ibge_1209.js --headed"
+  },
+  "keywords": [
+    "rpa",
+    "playwright",
+    "ibge",
+    "sidra",
+    "automation"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "playwright": "^1.53.0"
+  }
+}
