@@ -20,40 +20,42 @@ class SidraHomePage {
    * Acessa a página inicial obrigatória do SIDRA
    */
   async acessar() {
-    logProgresso('1/5', `Acessando a página inicial obrigatória: ${CONFIG.urlInicial}`);
+    logProgresso('1/6', `Acessando a página inicial obrigatória: ${CONFIG.urlInicial}`);
     await this.page.goto(CONFIG.urlInicial, {
       waitUntil: 'domcontentloaded',
-      timeout: CONFIG.timeoutPadrao
+      timeout: CONFIG.timeouts.navegacao
     });
   }
 
   /**
-   * Realiza a pesquisa interna pela interface e submete a consulta
+   * Realiza a pesquisa interna pela interface e submete a consulta (C7, C8)
    * @param {string} termoBusca
    */
   async pesquisarTabela(termoBusca) {
-    logProgresso('1/5', 'Acionando o campo de busca na interface do portal...');
-    await this.botaoPesquisa.waitFor({ state: 'visible', timeout: 15000 });
+    logProgresso('1/6', 'Acionando o campo de busca na interface do portal...');
+    await this.botaoPesquisa.waitFor({ state: 'visible', timeout: CONFIG.timeouts.elemento });
     await this.botaoPesquisa.click();
 
-    await this.campoPesquisa.waitFor({ state: 'visible', timeout: 10000 });
-    logProgresso('1/5', `Preenchendo busca com "${termoBusca}" e enviando consulta...`);
+    await this.campoPesquisa.waitFor({ state: 'visible', timeout: CONFIG.timeouts.elemento });
+    logProgresso('1/6', `Preenchendo busca com "${termoBusca}" e enviando consulta...`);
     await this.campoPesquisa.fill(termoBusca);
+    await this.campoPesquisa.press('Enter');
 
-    // Submissão da pesquisa e espera explícita pela navegação para a tabela
-    await Promise.all([
-      this.page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: CONFIG.timeoutPadrao }),
-      this.campoPesquisa.press('Enter')
-    ]);
-
-    await this.page.waitForLoadState('networkidle', { timeout: 30000 }).catch(() => null);
+    // C7: Trocar waitForNavigation por waitForURL com regex estrito (C8)
+    await this.page.waitForURL(/\/tabela\/1209\b/i, {
+      waitUntil: 'domcontentloaded',
+      timeout: CONFIG.timeouts.navegacao
+    });
 
     const urlAtual = this.page.url();
-    if (!urlAtual.toLowerCase().includes(termoBusca.toLowerCase())) {
-      throw new Error(`A navegação pela busca não resultou na tabela esperada. URL atual: ${urlAtual}`);
+    if (!/\/tabela\/1209\b/i.test(urlAtual)) {
+      throw new Error(
+        `A busca não levou à Tabela 1209. URL atual: ${urlAtual}. ` +
+        `Isso indica que o SIDRA passou a exibir uma página de resultados em vez de resolver direto.`
+      );
     }
 
-    logProgresso('1/5', `Tabela acessada com sucesso via interface de busca: ${urlAtual}`);
+    logProgresso('1/6', `Tabela acessada com sucesso via interface de busca: ${urlAtual}`);
   }
 }
 

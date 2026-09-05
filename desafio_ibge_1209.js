@@ -7,6 +7,7 @@
  */
 
 const { chromium } = require('playwright');
+const fs = require('fs');
 const path = require('path');
 const CONFIG = require('./src/config/config');
 const { logSucesso, logErro } = require('./src/utils/logger');
@@ -14,80 +15,114 @@ const { garantirDiretorioDestino, validarArquivoCsv } = require('./src/utils/fil
 const SidraHomePage = require('./src/pages/SidraHomePage');
 const Tabela1209Page = require('./src/pages/Tabela1209Page');
 
-/**
- * Orquestrador principal do fluxo de automação
- */
-async function main() {
+function imprimirCabecalho() {
   console.log('====================================================');
   console.log('  INICIANDO AUTOMAÇÃO RPA - SIDRA/IBGE TABELA 1209  ');
   console.log('  Arquitetura: Page Object Model (POM)              ');
   console.log('====================================================');
+}
 
-  // 1. Garantir que a pasta 'dados/' exista
+function imprimirRodape() {
+  console.log('====================================================');
+  console.log('             FIM DO PROCESSO DE AUTOMAÇÃO           ');
+  console.log('====================================================');
+}
+
+/**
+ * Salva artefatos de diagnóstico (screenshot + HTML completo) em caso de falha (C10, C12)
+ */
+async function salvarDiagnostico(page) {
+  try {
+    fs.mkdirSync(CONFIG.diretorioDiagnostico, { recursive: true });
+    const carimbo = new Date().toISOString().replace(/[:.]/g, '-');
+    const caminhoScreenshot = path.join(CONFIG.diretorioDiagnostico, `erro-${carimbo}.png`);
+    const caminhoHtml = path.join(CONFIG.diretorioDiagnostico, `erro-${carimbo}.html`);
+
+    await page.screenshot({ path: caminhoScreenshot, fullPage: true });
+    fs.writeFileSync(caminhoHtml, await page.content(), 'utf8');
+    console.log(`[DIAGNÓSTICO] Artefatos salvos em: ${CONFIG.diretorioDiagnostico}`);
+  } catch {
+    // Diagnóstico é best-effort: nunca deve mascarar o erro original
+  }
+}
+
+/**
+ * Orquestrador principal do fluxo de automação (C6)
+ */
+async function main() {
+  imprimirCabecalho();
   garantirDiretorioDestino();
 
-  // Suporte a modo headless configurável via linha de comando (--headed)
   const isHeaded = process.argv.includes('--headed');
-  const browser = await chromium.launch({
-    headless: !isHeaded,
-    args: ['--no-sandbox', '--disable-setuid-sandbox']
-  });
-
-  const context = await browser.newContext({
-    viewport: CONFIG.viewport,
-    acceptDownloads: true
-  });
-
-  const page = await context.newPage();
+  let browser;
+  let context;
+  let page;
 
   try {
-    // 2. Instanciação dos Page Objects
+    // Proteger inicialização do browser dentro do try (C6)
+    browser = await chromium.launch({
+      headless: !isHeaded,
+      args: ['--no-sandbox', '--disable-setuid-sandbox']
+    });
+
+    context = await browser.newContext({
+      viewport: CONFIG.viewport,
+      acceptDownloads: true
+    });
+
+    // Iniciar rastreamento de execução (trace) do Playwright (C10)
+    await context.tracing.start({ screenshots: true, snapshots: true, sources: true });
+
+    page = await context.newPage();
+    page.setDefaultTimeout(CONFIG.timeouts.elemento);
+
     const homePage = new SidraHomePage(page);
     const tabelaPage = new Tabela1209Page(page);
 
-    // 3. Navegação inicial e descoberta via interface de busca
+    // Fluxo ordenado
     await homePage.acessar();
     await homePage.pesquisarTabela(CONFIG.termoBuscaTabela);
-
-    // 4. Configuração dos parâmetros analíticos na Tabela 1209
     await tabelaPage.fecharTutoriaisSeExistirem();
     await tabelaPage.configurarRecorteTerritorialUFs();
     await tabelaPage.configurarGrupoIdade60MaisComSoma();
     await tabelaPage.configurarAnoMaisRecente();
-
-    // 5. Download nativo em CSV para o caminho exato
     await tabelaPage.baixarArquivoCsv(CONFIG.caminhoCompletoSaida);
 
-    // 6. Validação do arquivo CSV gerado
+    // Validação estrita dos dados
     validarArquivoCsv(CONFIG.caminhoCompletoSaida);
 
-    logSucesso('Fluxo completo executado com 100% de sucesso!');
+    logSucesso('Fluxo completo executado com sucesso.');
     process.exitCode = 0;
   } catch (erro) {
-    logErro('Falha durante a execução da automação:', erro.message || erro);
+    if (/Executable doesn't exist/.test(erro.message)) {
+      logErro('O navegador do Playwright não está instalado. Execute: npx playwright install chromium');
+    } else {
+      logErro('Falha durante a execução da automação:', erro.message || erro);
+    }
 
-    // Diagnóstico automático com captura de screenshot
-    try {
-      const caminhoPrintErro = path.join(CONFIG.diretorioDados, 'erro_execucao.png');
-      await page.screenshot({ path: caminhoPrintErro, fullPage: true });
-      console.log(`[DIAGNÓSTICO] Screenshot de erro salva em: ${caminhoPrintErro}`);
-    } catch {
-      // Ignora erro ao salvar screenshot
+    if (page && !page.isClosed()) {
+      await salvarDiagnostico(page);
     }
 
     process.exitCode = 1;
   } finally {
-    await context.close().catch(() => null);
-    await browser.close().catch(() => null);
-    console.log('====================================================');
-    console.log('             FIM DO PROCESSO DE AUTOMAÇÃO           ');
-    console.log('====================================================');
+    if (context) {
+      await context.tracing.stop({
+        path: path.join(CONFIG.diretorioDiagnostico, 'trace.zip')
+      }).catch(() => null);
+    }
+    await context?.close().catch(() => null);
+    await browser?.close().catch(() => null);
+    imprimirRodape();
   }
 }
 
-// Execução imediata via CLI
+// Execução imediata protegendo rejeições não capturadas (C6)
 if (require.main === module) {
-  main();
+  main().catch((erro) => {
+    logErro('Erro fatal não tratado:', erro?.stack || erro);
+    process.exit(1);
+  });
 }
 
 module.exports = { main };

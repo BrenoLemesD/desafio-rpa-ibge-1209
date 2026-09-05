@@ -1,4 +1,6 @@
 const CONFIG = require('../config/config');
+const SELETORES = require('../config/seletores');
+const { esperarCondicao } = require('../utils/espera');
 const { logProgresso, logSucesso } = require('../utils/logger');
 
 /**
@@ -16,9 +18,9 @@ class Tabela1209Page {
 
     // Painel Territorial
     this.painelTerritorio = page.locator('#panel-T');
-    this.itemBrasilCheck = page.locator('#arvore-355e-1 > .item-arvore .sidra-check').first();
-    this.botaoToggleBrasil = page.locator('#arvore-355e-1 > .item-arvore .sidra-toggle').first();
-    this.botaoToggleUF = page.locator('#arvore-435e-1 > .item-arvore .sidra-toggle').first();
+    this.itemBrasilCheck = page.locator(`${SELETORES.arvoreBrasil} .sidra-check`).first();
+    this.botaoToggleBrasil = page.locator(`${SELETORES.arvoreBrasil} .sidra-toggle`).first();
+    this.botaoToggleUF = page.locator(`${SELETORES.arvoreUF} .sidra-toggle`).first();
 
     // Painel Grupo de Idade (C58)
     this.painelIdade = page.locator('#panel-C58');
@@ -29,88 +31,165 @@ class Tabela1209Page {
 
     // Painel Ano / Período (P)
     this.painelAno = page.locator('#panel-P');
-    this.linkAnoMaisRecente = page.locator('#panel-P a:has-text("Mais recente")').first();
+    this.linkAnoMaisRecente = page.locator('#panel-P .sidra-check').first();
 
     // Painel e Ações de Download
     this.botaoDownloads = page.locator('#botao-downloads').first();
     this.selectFormatoArquivo = page.locator('#download-form select[name="formato-arquivo"]').first();
     this.botaoConfirmarDownload = page.locator('#opcao-downloads').first();
+
+    this.anoSelecionado = null;
   }
 
   /**
-   * Fecha popovers ou tutoriais iniciais caso estejam bloqueando a interface
+   * Fecha popovers ou tutoriais iniciais caso estejam bloqueando a interface (C3)
    */
   async fecharTutoriaisSeExistirem() {
     try {
-      if (await this.botaoFecharTutorial.isVisible({ timeout: 2000 }).catch(() => false)) {
-        await this.botaoFecharTutorial.click();
-        logProgresso('2/5', 'Popup de tutorial do SIDRA fechado.');
-      }
+      await this.botaoFecharTutorial.first().waitFor({
+        state: 'visible',
+        timeout: CONFIG.timeouts.popover
+      });
     } catch {
-      // Segue sem travar caso não exista popup
+      logProgresso('2/6', 'Nenhum popover de tutorial detectado.');
+      return;
     }
+
+    await this.botaoFecharTutorial.first().click();
+    await this.botaoFecharTutorial.first().waitFor({ state: 'hidden', timeout: CONFIG.timeouts.popover });
+    logProgresso('2/6', 'Popover de tutorial do SIDRA fechado.');
   }
 
   /**
-   * Desmarca o totalizador Brasil e seleciona todas as 27 Unidades da Federação
+   * Desmarca o totalizador Brasil e seleciona todas as 27 Unidades da Federação (C1, C2)
    */
   async configurarRecorteTerritorialUFs() {
-    logProgresso('2/5', 'Configurando Recorte Territorial (Unidades da Federação)...');
-    await this.painelTerritorio.waitFor({ state: 'visible', timeout: 20000 });
+    logProgresso('2/6', 'Configurando Recorte Territorial (Unidades da Federação)...');
+    await this.painelTerritorio.waitFor({ state: 'visible', timeout: CONFIG.timeouts.painel });
 
-    // Desmarcar nível 'Brasil' (marcado por padrão)
-    const isBrasilMarcado = await this.itemBrasilCheck.evaluate(el => el.classList.contains('checked')).catch(() => false);
-    if (isBrasilMarcado) {
+    // Sem este nó não há como garantir que "Brasil" saiu do recorte: deve falhar alto se não existir (C1)
+    await this.itemBrasilCheck.waitFor({ state: 'attached', timeout: CONFIG.timeouts.elemento });
+
+    const brasilMarcado = await this.itemBrasilCheck.evaluate(el => el.classList.contains('checked'));
+    if (brasilMarcado) {
       await this.botaoToggleBrasil.click();
-      logProgresso('2/5', 'Seleção padrão de "Brasil" desmarcada.');
+      await esperarCondicao(
+        this.page,
+        (sel) => {
+          const el = document.querySelector(`${sel} .sidra-check`);
+          return el && !el.classList.contains('checked');
+        },
+        {
+          arg: SELETORES.arvoreBrasil,
+          timeout: CONFIG.timeouts.estado,
+          mensagem: 'o totalizador "Brasil" continuou marcado após o clique'
+        }
+      );
+      logProgresso('2/6', 'Seleção padrão de "Brasil" desmarcada.');
+    } else {
+      logProgresso('2/6', 'Totalizador "Brasil" já estava desmarcado.');
     }
 
-    // Marcar 'Unidade da Federação' (seleciona as 27 UFs)
-    await this.botaoToggleUF.waitFor({ state: 'visible', timeout: 10000 });
+    // Marcar 'Unidade da Federação' (C2: espera com trava real, sem engolir erro)
+    await this.botaoToggleUF.waitFor({ state: 'visible', timeout: CONFIG.timeouts.elemento });
     await this.botaoToggleUF.click();
 
-    // Espera explícita pelo contador [27/27]
-    await this.page.waitForFunction(() => {
-      const contador = document.querySelector('#arvore-435e-1 .contador');
-      return contador && contador.textContent.includes('27/27');
-    }, { timeout: 15000 }).catch(() => null);
+    await esperarCondicao(
+      this.page,
+      (sel) => {
+        const contador = document.querySelector(sel);
+        return !!contador && contador.textContent.includes('27/27');
+      },
+      {
+        arg: SELETORES.contadorUF,
+        timeout: CONFIG.timeouts.estado,
+        mensagem: 'o contador de Unidades da Federação não chegou a 27/27'
+      }
+    );
 
-    logProgresso('2/5', 'Todas as 27 Unidades da Federação selecionadas.');
+    logProgresso('2/6', 'Todas as 27 Unidades da Federação selecionadas.');
   }
 
   /**
-   * Configura o grupo etário para 60 anos ou mais, selecionando 60-69 e 70+ e consolidando via Soma
+   * Configura o grupo etário para 60 anos ou mais, selecionando 60-69 e 70+ e consolidando via Soma (C4)
    */
   async configurarGrupoIdade60MaisComSoma() {
-    logProgresso('3/5', 'Configurando Grupo de Idade (60 anos ou mais)...');
-    await this.painelIdade.waitFor({ state: 'visible', timeout: 20000 });
+    logProgresso('3/6', 'Configurando Grupo de Idade (60 anos ou mais)...');
+    await this.painelIdade.waitFor({ state: 'visible', timeout: CONFIG.timeouts.painel });
 
     // Limpar seleção padrão ("Total")
+    await this.botaoDesmarcarTodosIdade.waitFor({ state: 'visible', timeout: CONFIG.timeouts.elemento });
     await this.botaoDesmarcarTodosIdade.click();
 
     // Selecionar faixas correspondentes
-    await this.item60a69Toggle.waitFor({ state: 'visible', timeout: 10000 });
-    await this.item60a69Toggle.click();
+    for (const [rotulo, toggle] of [['60 a 69 anos', this.item60a69Toggle], ['70 anos ou mais', this.item70maisToggle]]) {
+      await toggle.waitFor({ state: 'visible', timeout: CONFIG.timeouts.elemento });
+      await toggle.click();
+      logProgresso('3/6', `Faixa "${rotulo}" marcada.`);
+    }
 
-    await this.item70maisToggle.waitFor({ state: 'visible', timeout: 10000 });
-    await this.item70maisToggle.click();
+    // Confirmar que exatamente 2 faixas estão marcadas antes de somar
+    const marcadas = await this.page.locator(SELETORES.painelIdadeCheckMarcados).count();
+    if (marcadas !== 2) {
+      throw new Error(`Esperava 2 faixas etárias marcadas antes da soma, mas encontrei ${marcadas}.`);
+    }
 
     // Consolidar somando as duas faixas
+    await this.botaoSomarElementos.waitFor({ state: 'visible', timeout: CONFIG.timeouts.elemento });
     await this.botaoSomarElementos.click();
-    logProgresso('3/5', 'Grupos "60 a 69 anos" e "70 anos ou mais" selecionados e consolidados via Soma.');
+
+    await esperarCondicao(
+      this.page,
+      () => {
+        const btn = document.querySelector('#panel-C58 button[title="Somar elementos"]');
+        const painel = document.querySelector('#panel-C58');
+        const isBtnAtivo = btn && btn.classList.contains('active');
+        const temTituloSoma = painel && painel.innerText.includes('Grupo de idade - Soma');
+        return isBtnAtivo || temTituloSoma;
+      },
+      {
+        timeout: CONFIG.timeouts.estado,
+        mensagem: 'a consolidação por soma das faixas "60 a 69" e "70 ou mais" não foi ativada na interface'
+      }
+    );
+
+    logProgresso('3/6', 'Faixas consolidadas via Soma em um único grupo 60+.');
   }
 
   /**
-   * Configura o período mais recente disponível
+   * Configura o período mais recente disponível e valida a seleção (C4)
    */
   async configurarAnoMaisRecente() {
-    logProgresso('3/5', 'Configurando Período / Ano mais recente...');
-    await this.painelAno.waitFor({ state: 'visible', timeout: 20000 });
+    logProgresso('4/6', 'Configurando Período / Ano mais recente...');
+    await this.painelAno.waitFor({ state: 'visible', timeout: CONFIG.timeouts.painel });
 
-    if (await this.linkAnoMaisRecente.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await this.linkAnoMaisRecente.click();
+    await this.linkAnoMaisRecente.waitFor({ state: 'visible', timeout: CONFIG.timeouts.elemento });
+
+    // Garante que o ano mais recente esteja marcado
+    const isMarcado = await this.linkAnoMaisRecente.evaluate(el => el.classList.contains('checked')).catch(() => false);
+    if (!isMarcado) {
+      const toggle = this.linkAnoMaisRecente.locator('.sidra-toggle').first();
+      await toggle.click();
     }
-    logProgresso('3/5', 'Ano mais recente configurado com sucesso.');
+
+    // Confirma que exatamente um período ficou selecionado e devolve qual é
+    const anoSelecionado = await this.page.evaluate((sel) => {
+      const marcados = [...document.querySelectorAll(sel)];
+      if (marcados.length !== 1) return null;
+      const texto = marcados[0].textContent.trim();
+      const match = texto.match(/\b\d{4}\b/);
+      return match ? match[0] : null;
+    }, SELETORES.painelAnoCheckMarcados);
+
+    if (!anoSelecionado || !/^\d{4}$/.test(anoSelecionado)) {
+      throw new Error(
+        `Esperava exatamente um ano selecionado no painel de Período, mas o estado ficou "${anoSelecionado}". ` +
+        `Sem isso o CSV conteria todos os censos históricos.`
+      );
+    }
+
+    this.anoSelecionado = anoSelecionado;
+    logProgresso('4/6', `Período configurado: ${anoSelecionado}.`);
   }
 
   /**
@@ -118,20 +197,20 @@ class Tabela1209Page {
    * @param {string} caminhoDestino
    */
   async baixarArquivoCsv(caminhoDestino) {
-    logProgresso('4/5', 'Abrindo opções de Download da tabela...');
-    await this.botaoDownloads.waitFor({ state: 'visible', timeout: 15000 });
+    logProgresso('5/6', 'Abrindo opções de Download da tabela...');
+    await this.botaoDownloads.waitFor({ state: 'visible', timeout: CONFIG.timeouts.elemento });
     await this.botaoDownloads.click();
 
-    await this.selectFormatoArquivo.waitFor({ state: 'visible', timeout: 15000 });
+    await this.selectFormatoArquivo.waitFor({ state: 'visible', timeout: CONFIG.timeouts.elemento });
     await this.selectFormatoArquivo.selectOption({ value: 'br.csv' });
-    logProgresso('4/5', 'Formato de exportação configurado para CSV (BR).');
+    logProgresso('5/6', 'Formato de exportação configurado para CSV (BR).');
 
-    logProgresso('4/5', 'Iniciando o download do arquivo CSV...');
-    await this.botaoConfirmarDownload.waitFor({ state: 'visible', timeout: 15000 });
+    logProgresso('5/6', 'Iniciando o download do arquivo CSV...');
+    await this.botaoConfirmarDownload.waitFor({ state: 'visible', timeout: CONFIG.timeouts.elemento });
 
-    // Captura segura e assíncrona do evento de download disparado pelo clique
+    // Captura do evento de download assíncrono do navegador
     const [download] = await Promise.all([
-      this.page.waitForEvent('download', { timeout: CONFIG.timeoutPadrao }),
+      this.page.waitForEvent('download', { timeout: CONFIG.timeouts.download }),
       this.botaoConfirmarDownload.click()
     ]);
 

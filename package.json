@@ -1,8 +1,11 @@
 {
-  "name": "desafio_ibge_1209",
+  "name": "desafio-rpa-ibge-1209",
   "version": "1.0.0",
-  "description": "Automação RPA para navegação no SIDRA/IBGE e extração da Tabela 1209 (População 60+ por UF)",
+  "description": "Automação RPA em Node.js e Playwright para navegação no SIDRA/IBGE e extração da Tabela 1209 (População 60+ por UF)",
   "main": "desafio_ibge_1209.js",
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "start": "node desafio_ibge_1209.js",
     "start:headed": "node desafio_ibge_1209.js --headed"
@@ -12,11 +15,12 @@
     "playwright",
     "ibge",
     "sidra",
-    "automation"
+    "automation",
+    "page-object-model"
   ],
-  "author": "",
+  "author": "Breno Lemes",
   "license": "ISC",
   "dependencies": {
-    "playwright": "^1.53.0"
+    "playwright": "^1.63.0"
   }
 }

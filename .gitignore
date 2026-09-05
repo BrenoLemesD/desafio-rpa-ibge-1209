@@ -1,13 +1,14 @@
 # Dependências
 node_modules/
 
-# Logs e diagnósticos
+# Diagnóstico e artefatos temporários
+diagnostico/
+erro_execucao.png
 *.log
 npm-debug.log*
 yarn-debug.log*
-yarn-error.log*
-erro_execucao.png
+*.pdf
 
-# Ambientes e OS
+# Ambientes e Sistema Operacional
 .DS_Store
 Thumbs.db
