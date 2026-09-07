@@ -47,6 +47,48 @@ async function salvarDiagnostico(page) {
 }
 
 /**
+ * Inicializa o navegador com estratégia de fallback:
+ * 1. Tenta o Chromium padrão gerenciado pelo Playwright.
+ * 2. Caso não esteja instalado, utiliza o Google Chrome do sistema operacional.
+ * 3. Caso não encontre o Chrome, utiliza o Microsoft Edge do sistema operacional.
+ * 
+ * @param {boolean} isHeaded
+ * @returns {Promise<import('playwright').Browser>}
+ */
+async function iniciarNavegador(isHeaded) {
+  const opcoesBase = {
+    headless: !isHeaded,
+    args: ['--no-sandbox', '--disable-setuid-sandbox']
+  };
+
+  // 1. Tentar Chromium padrão do Playwright
+  try {
+    return await chromium.launch(opcoesBase);
+  } catch (erro) {
+    if (!/Executable doesn't exist/i.test(erro.message)) {
+      throw erro;
+    }
+  }
+
+  // 2. Fallback: Google Chrome instalado no sistema
+  try {
+    console.log('[INFO] Chromium padrão não encontrado. Utilizando Google Chrome do sistema...');
+    return await chromium.launch({ ...opcoesBase, channel: 'chrome' });
+  } catch {
+    // 3. Fallback: Microsoft Edge instalado no sistema
+    try {
+      console.log('[INFO] Chromium padrão não encontrado. Utilizando Microsoft Edge do sistema...');
+      return await chromium.launch({ ...opcoesBase, channel: 'msedge' });
+    } catch {
+      throw new Error(
+        'Nenhum navegador compatível foi encontrado no sistema. ' +
+        'Execute: npx playwright install chromium'
+      );
+    }
+  }
+}
+
+/**
  * Orquestrador principal do fluxo de automação (C6)
  */
 async function main() {
@@ -59,11 +101,8 @@ async function main() {
   let page;
 
   try {
-    // Proteger inicialização do browser dentro do try (C6)
-    browser = await chromium.launch({
-      headless: !isHeaded,
-      args: ['--no-sandbox', '--disable-setuid-sandbox']
-    });
+    // Inicialização protegida com fallback para navegadores instalados no sistema
+    browser = await iniciarNavegador(isHeaded);
 
     context = await browser.newContext({
       viewport: CONFIG.viewport,
@@ -94,8 +133,8 @@ async function main() {
     logSucesso('Fluxo completo executado com sucesso.');
     process.exitCode = 0;
   } catch (erro) {
-    if (/Executable doesn't exist/.test(erro.message)) {
-      logErro('O navegador do Playwright não está instalado. Execute: npx playwright install chromium');
+    if (/Executable doesn't exist|Nenhum navegador compatível/i.test(erro.message)) {
+      logErro('Navegador compatível não encontrado. Execute: npx playwright install chromium');
     } else {
       logErro('Falha durante a execução da automação:', erro.message || erro);
     }

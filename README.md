@@ -31,11 +31,13 @@ cd desafio-rpa-ibge-1209
 ```
 
 ### Etapa 2: Instalar Dependências e Navegador
-Instale os pacotes do projeto e baixe os binários do Chromium necessários para o Playwright:
+Instale os pacotes do projeto e o navegador do Playwright:
 ```bash
 npm install
 npx playwright install chromium
 ```
+
+> **Nota:** A automação conta com redundância de navegadores: caso o Chromium do Playwright não esteja instalado no ambiente, o robô utilizará o Google Chrome ou Edge (se já instalado no sistema operacional).
 
 ### Etapa 3: Executar a Automação
 
